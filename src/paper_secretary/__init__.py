@@ -1,0 +1,2 @@
+"""LangGraph-based paper secretary."""
+
