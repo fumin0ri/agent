@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from dotenv import load_dotenv
+from langchain_ollama import OllamaEmbeddings
 
 from .agent import create_secretary
 from .config import Settings
@@ -19,11 +21,25 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     load_dotenv()
     args = _parser().parse_args()
     settings = Settings.from_env()
     if args.command == "index":
-        indexed, skipped, failed = build_index(settings.paper_library, settings.paper_index)
+        embeddings = OllamaEmbeddings(
+            model=settings.ollama_embedding_model,
+            base_url=settings.ollama_base_url,
+        )
+        indexed, skipped, failed = build_index(
+            settings.paper_library,
+            settings.paper_index,
+            embeddings,
+            settings.ollama_embedding_model,
+            settings.chunk_size,
+            settings.chunk_overlap,
+            settings.embedding_batch_size,
+        )
         print(f"Indexed: {indexed}, unchanged: {skipped}, failed: {failed}")
         return
 
