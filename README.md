@@ -1,17 +1,45 @@
-# LangGraph Paper Secretary
+# LangGraph Slack MCP Agent
 
-別のマシンで動くOllamaを頭脳として使い、ローカルの論文フォルダから指示に合う論文を探す秘書エージェントです。
+利用者の自然言語指示をOllamaで理解し、Slack公式MCPサーバーが実行時に公開するツールを選択・実行するLangGraphエージェントです。
 
-処理はLangGraphで次の順に実行します。
+論文検索機能はありません。エージェントは起動時にSlack MCPへ接続して利用可能な機能を発見し、必要に応じて複数のツールを順番に呼び出します。
 
-1. PDF、Markdown、テキストをページ・チャンク単位に分割
-2. Ollamaの埋め込みモデルで各チャンクをベクトル化
-3. 利用者の依頼と意味的に近い本文をコサイン類似度で検索
-4. 関連本文だけを根拠に、候補、理由、ページ番号、ファイルパスを回答
+```text
+利用者の指示
+  → Slack MCPからツール一覧を取得
+  → Ollamaが次の操作を判断
+  → MCPツールを実行
+  → 結果をOllamaへ戻す
+  → 必要なら追加ツールを実行
+  → 最終回答
+```
+
+## Slack MCPでできること
+
+利用可能な機能は、Slackアプリへ付与したOAuthスコープとワークスペース管理者の承認によって変わります。Slack公式MCPサーバーは、主に次の操作を提供します。
+
+- メッセージ、ファイル、ユーザー、チャンネル、絵文字の検索
+- チャンネル履歴・スレッドの読取
+- メッセージ送信、会話作成、リアクション追加
+- Canvasの作成・更新・読取
+- ユーザープロフィール・チャンネルメンバーの取得
+
+## Slack側の準備
+
+Slack公式ドキュメントに従い、Marketplace公開アプリまたは内部アプリを作成します。
+
+1. SlackアプリでModel Context Protocol機能を有効化
+2. 必要なユーザースコープを追加
+3. OAuth Redirect URLを設定
+4. アプリをインストールし、OAuthでユーザートークンを取得
+
+Slack公式MCPはStreamable HTTPのみをサポートします。
+
+```text
+https://mcp.slack.com/mcp
+```
 
 ## セットアップ
-
-Python 3.11以上を用意し、プロジェクト直下で実行します。
 
 ```powershell
 python -m venv .venv
@@ -20,53 +48,52 @@ pip install -e ".[dev]"
 Copy-Item .env.example .env
 ```
 
-`.env`を環境に合わせて変更します。
+`.env`へOllama接続先と、Slack OAuthで取得したユーザートークンを設定します。
 
 ```dotenv
-# Ollamaが動いている別マシン。末尾に /api は付けません。
-OLLAMA_BASE_URL=http://192.168.1.20:11434
-OLLAMA_MODEL=qwen3:8b
-OLLAMA_EMBEDDING_MODEL=embeddinggemma
-
-# 論文フォルダと検索索引
-PAPER_LIBRARY=D:\papers
-PAPER_INDEX=./work/papers.sqlite3
+OLLAMA_BASE_URL=http://192.168.1.54:11434
+OLLAMA_MODEL=gpt-oss:20b
+SLACK_MCP_URL=https://mcp.slack.com/mcp
+SLACK_MCP_TOKEN=xoxp-your-user-token
 ```
 
-OllamaサーバーをLANから利用する場合、Ollama側で待受アドレスとファイアウォールを適切に設定してください。APIには機密性のある論文本文が送信されるため、信頼できないネットワークへ公開しないでください。
+## 使用方法
 
-## 使い方
-
-Ollamaサーバー側でチャットモデルと埋め込みモデルを準備します。
+まずSlack MCPへ接続し、現在利用できるツールとREAD/WRITE分類を確認します。
 
 ```powershell
-ollama pull qwen3:8b
-ollama pull embeddinggemma
+slack-agent doctor
+slack-agent tools
 ```
 
-論文フォルダをベクトル索引化します。ファイルを追加・更新した際も同じコマンドで差分更新できます。
+検索・読取指示はそのまま実行できます。
 
 ```powershell
-paper-secretary index
+slack-agent ask "先週project-alphaチャンネルで決まった内容を要約して"
+slack-agent ask "田中さんのプロフィールと現在のステータスを調べて"
 ```
 
-自然言語で検索を依頼します。
+メッセージ送信、チャンネル作成、リアクション、Canvas更新などの書込み操作は、誤操作防止のため`--allow-writes`が必要です。
 
 ```powershell
-paper-secretary ask "Transformerを科学的発見に応用した最近の論文を探して"
-paper-secretary ask "著者名にHintonを含み、蒸留を扱う論文はある？"
+slack-agent ask --allow-writes "generalチャンネルに明日の会議は10時開始と投稿して"
 ```
 
-## ベクトル検索について
+## 安全設計
 
-索引化時に論文本文を約1800文字のチャンクへ分割し、Ollamaの埋め込みAPIでベクトル化します。検索時には依頼文も同じモデルでベクトル化し、コサイン類似度が高い本文をLLMへ渡します。このため、論文と依頼で表現が異なっていても、意味が近ければ候補になります。
-
-初期設定では1論文あたり最大2チャンクを採用し、検索結果が一つの論文だけで埋まらないようにしています。回答プロンプトは、各主張に検索結果番号とページ番号を付け、根拠にない内容を補わないよう要求します。`.env`の`SEARCH_RESULT_LIMIT`と`MAX_CHUNKS_PER_PAPER`で調整できます。
-
-埋め込みモデルを変更すると、次回の`paper-secretary index`で索引全体を自動的に再構築します。小・中規模の論文ライブラリ向けに、ベクトルはSQLiteへ保存しPythonで比較しています。数十万チャンク規模になった場合はQdrantやpgvectorへの移行が適しています。
+- ツール名・説明・入力スキーマはSlack MCPから実行時に取得
+- 検索・読取系以外の未知ツールは書込み操作として保守的に扱う
+- 書込み操作は初期設定でブロック
+- MCPツール結果をLLMへ戻し、追加操作または最終回答を判断
+- 最大ツール実行ステップ数を設定し、無限ループを防止
 
 ## テスト
 
 ```powershell
 pytest
 ```
+
+## 参考
+
+- [Slack MCP Server overview](https://docs.slack.dev/ai/slack-mcp-server/)
+- [Developing a sample app with the Slack MCP Server](https://docs.slack.dev/ai/slack-mcp-server/developing/)

@@ -3,6 +3,3 @@
 __pycache__/
 .pytest_cache/
 *.pyc
-work/*.sqlite3
-work/*.sqlite3-*
-papers/
