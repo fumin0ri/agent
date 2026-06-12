@@ -48,13 +48,12 @@ pip install -e ".[dev]"
 Copy-Item .env.example .env
 ```
 
-`.env`へOllama接続先と、Slack OAuthで取得したユーザートークンを設定します。
+`.env`へOllama接続先を設定します。Slack OAuthで取得したユーザートークンもローカルの`.env`へ設定してください。トークンをREADMEやGit管理対象ファイルへ記載しないでください。
 
 ```dotenv
-OLLAMA_BASE_URL=http://192.168.1.54:11434
+OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gpt-oss:20b
 SLACK_MCP_URL=https://mcp.slack.com/mcp
-SLACK_MCP_TOKEN=xoxp-your-user-token
 ```
 
 ## 使用方法
